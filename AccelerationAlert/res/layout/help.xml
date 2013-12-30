@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical" >
+
+    <ScrollView
+        android:id="@+id/ScrollView01"
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent"
+        android:fillViewport="true" >
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" >
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp" >
+
+                <RelativeLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerHorizontal="true" >
+
+                    <TextView
+                        android:id="@+id/label_sensor_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-condensed"
+                        android:text="@string/app_name"
+                        android:textAppearance="?android:attr/textAppearanceMedium"
+                        android:textColor="@color/dark_orange" />
+
+                    <TextView
+                        android:id="@+id/label_app_description"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_toRightOf="@+id/label_sensor_name"
+                        android:fontFamily="sans-serif-condensed"
+                        android:text="@string/filter_help"
+                        android:textAppearance="?android:attr/textAppearanceMedium" />
+                </RelativeLayout>
+            </RelativeLayout>
+
+            <TextView
+                android:id="@+id/text_header_introduction_0"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="What does this application do?"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/text_introduction_0"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="Acceleration Alert is an application intended to record acceleration events with parameters defined by the user. For example, Acceleration Alert can be setup to record all acceleration events above a certain threshold of acceleration, say 0.5 G&apos;s. If Acceleration Alert detects acceleration above 0.5 G&apos;s, it will record the acceleration data to a .CSV file and plot the results to the screen."
+                android:textAppearance="?android:attr/textAppearanceSmall" />
+
+            <TextView
+                android:id="@+id/text_header_introduction_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="Why is this application useful?"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/text_introduction_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="Acceleration Alert can be setup to detect extreme acceleration events in cars, planes, robots, sports and many other applications. This events are saved to a .CSV file so they can be opened in any spread sheet application as well as graphed to the screen."
+                android:textAppearance="?android:attr/textAppearanceSmall" />
+
+            <TextView
+                android:id="@+id/text_header_introduction_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="How does this application work?"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/text_introduction_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="Acceleration Alert works by detecting acceleration events above a user defined threshold. Once an acceleration event is started, it is stopped when the acceleration drops below another user defined threshold. These thresholds also have threshold counts which help prevent false events by requring a certain number of consectutive acceleration measurements. The raw acceleration from the sensor can be used or a linear acceleration sensor, which allows the device to be mounted in any orientation, can also be used."
+                android:textAppearance="?android:attr/textAppearanceSmall" />
+
+            <TextView
+                android:id="@+id/text_header_introduction_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="How do I apply thresholds and threshold counts?"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/text_introduction_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="A threshold can be defined in the Settings menu, Options -> Settings. There are two thresholds, a maximum threshold and minimum threshold. Thresholds are defined in units of gravities of earth, or 9.78 meters/sec^2. Any acceleration measurement above the maximum threshold will trigger an acceleration event which will be logged. Any acceleration measurement below the minimum threshold will stop the acceleration event. Threshold counts require that there be a certain number of consecutive measurements above or below the thresholds before an acceleration event will be triggered or stopped. The threshold counts can help prevent false acceleration events. "
+                android:textAppearance="?android:attr/textAppearanceSmall" />
+
+            <TextView
+                android:id="@+id/text_header_introduction_4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="What sensors are available?"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/text_introduction_4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="There are two sensors available: A acceleration sensor and a linear acceleration sensor. The sensor being used by the application can be changed in the configurations menu, Options -> Configuration. The acceleration sensor uses the z-axis of the device to measure acceleration, so it must be mounted as level as possible, with the top of the phone pointed towards the sky and the camera parallel to the vehicle. The linear acceleration sensor can be mounted in any orientation, but it may take some configuring to get it to work optimally."
+                android:textAppearance="?android:attr/textAppearanceSmall" />
+
+            <TextView
+                android:id="@+id/text_header_introduction_5"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="How do I configure the linear acceleration sensor?"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/text_introduction_5"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="The linear acceleration sensor is based on a low-pass filter and only requires the acceleration sensor to operate. There is a single value, known as alpha, that defines how the low-pass filter operates. Alpha itself is defined as a value between 0 and 1. A value very close to 0 allows the sensor to correct for orientation changes very quickly, but makes it prone to errors under linear acceleration. A value very close to 1 makes the sensor slow to correct for orientation changes, but is very accurate under linear acceleration. A value very close to 1 is reccomended."
+                android:textAppearance="?android:attr/textAppearanceSmall" />
+            
+            <TextView
+                android:id="@+id/text_header_introduction_6"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="Where are my logs saved?"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:textStyle="bold" />
+            
+             <TextView
+                android:id="@+id/text_introduction_6"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_margin="5dp"
+                android:text="Logs are saved to a folder on the Android device. The parent folder is called AccelerationAlert and the logs can be found under the Logs folder."
+                android:textAppearance="?android:attr/textAppearanceSmall" />
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

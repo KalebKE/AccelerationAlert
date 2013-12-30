@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android" >
+
+    <item
+        android:id="@+id/menu_options"
+        android:showAsAction="always"
+        android:title="@string/action_options">
+        <menu>
+            <item
+                android:id="@+id/action_settings"
+                android:showAsAction="always"
+                android:title="@string/action_settings"/>
+            <item
+                android:id="@+id/action_config"
+                android:showAsAction="always"
+                android:title="@string/action_config"/>
+              <item
+                android:id="@+id/action_help"
+                android:showAsAction="always"
+                android:title="@string/action_help"/>
+        </menu>
+    </item>
+
+</menu>
