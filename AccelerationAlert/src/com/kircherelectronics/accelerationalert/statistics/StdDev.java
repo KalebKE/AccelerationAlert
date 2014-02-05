@@ -37,7 +37,7 @@ public class StdDev
 {
 	// The size of the sample window that determines RMS Amplitude Noise
 	// (standard deviation)
-	public final static int SAMPLE_WINDOW = 50;
+	public final static int SAMPLE_WINDOW = 25;
 
 	private LinkedList<Double> list = new LinkedList<Double>();
 	private double stdDev;

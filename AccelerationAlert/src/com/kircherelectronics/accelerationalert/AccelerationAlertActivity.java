@@ -5,19 +5,28 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.Locale;
+import java.util.TimeZone;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.media.MediaScannerConnection;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
@@ -26,6 +35,9 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
+import android.preference.PreferenceManager;
+import android.provider.Settings.Secure;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -33,6 +45,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnTouchListener;
 import android.view.Window;
+import android.view.WindowManager.LayoutParams;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -43,26 +56,9 @@ import com.kircherelectronics.accelerationalert.filter.LPFAndroidDeveloper;
 import com.kircherelectronics.accelerationalert.filter.LowPassFilter;
 import com.kircherelectronics.accelerationalert.filter.MeanFilterByArray;
 import com.kircherelectronics.accelerationalert.filter.MeanFilterByValue;
+import com.kircherelectronics.accelerationalert.mail.Mail;
 import com.kircherelectronics.accelerationalert.plot.DynamicPlot;
 import com.kircherelectronics.accelerationalert.plot.PlotColor;
-
-/*
- * Low-Pass Linear Acceleration
- * Copyright (C) 2013, Kaleb Kircher - Boki Software, Kircher Engineering, LLC
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
 
 /**
  * Implements an Activity that is intended to run low-pass filters on
@@ -73,35 +69,45 @@ import com.kircherelectronics.accelerationalert.plot.PlotColor;
  * which can then be subtracted from the acceleration to find the linear
  * acceleration.
  * 
- * Currently supports two versions of IIR digital low-pass filter. The low-pass
+ * Currently supports a version of an IIR digital low-pass filter. The low-pass
  * filters are classified as recursive, or infinite response filters (IIR). The
  * current, nth sample output depends on both current and previous inputs as
  * well as previous outputs. It is essentially a weighted moving average, which
  * comes in many different flavors depending on the values for the coefficients,
  * a and b.
  * 
- * The first low-pass filter, the Wikipedia LPF, is an IIR single-pole
- * implementation. The coefficient, a (alpha), can be adjusted based on the
- * sample period of the sensor to produce the desired time constant that the
- * filter will act on. It takes a simple form of y[i] = y[i] + alpha * (x[i] -
- * y[i]). Alpha is defined as alpha = dt / (timeConstant + dt);) where the time
- * constant is the length of signals the filter should act on and dt is the
- * sample period (1/frequency) of the sensor.
- * 
- * The second low-pass filter, the Android Developer LPF, is an IIR single-pole
- * implementation. The coefficient, a (alpha), can be adjusted based on the
- * sample period of the sensor to produce the desired time constant that the
- * filter will act on. It is essentially the same as the Wikipedia LPF. It takes
- * a simple form of y[0] = alpha * y[0] + (1 - alpha) * x[0]. Alpha is defined
- * as alpha = timeConstant / (timeConstant + dt) where the time constant is the
- * length of signals the filter should act on and dt is the sample period
+ * The Android Developer LPF, is an IIR single-pole implementation. The
+ * coefficient, a (alpha), can be adjusted based on the sample period of the
+ * sensor to produce the desired time constant that the filter will act on. It
+ * takes a simple form of y[0] = alpha * y[0] + (1 - alpha) * x[0]. Alpha is
+ * defined as alpha = timeConstant / (timeConstant + dt) where the time constant
+ * is the length of signals the filter should act on and dt is the sample period
  * (1/frequency) of the sensor.
+ * 
+ * AccelerationAlertActivity is intended to monitor the output from the LPF for
+ * acceleration events. An acceleration event is defined as a period of linear
+ * acceleration that exceeds a defined threshold for prescribed period of time.
+ * 
+ * A rolling window of the acceleration is kept for defined period of time. If
+ * an acceleration event is detected, the rolling window is used to record the
+ * acceleration leading up to the acceleration event and the event itself. The
+ * maximum acceleration, location, velocity and time are also recorded and
+ * persisted via a .csv log file.
+ * 
+ * In addition to the log file, a .csv meta file is created for each trip. A
+ * trip consists of zero-to-many acceleration events. The meta file contains a
+ * start location, a stop location, a route, time stamps, the number of
+ * acceleration events classified by the magnitude of the acceleration and an
+ * opinion of the safety of the trip from the driver.
+ * 
+ * Both the log and meta files can be emailed transparently to a preconfigured
+ * email address after each trip.
  * 
  * @author Kaleb
  * @version %I%, %G%
  */
 public class AccelerationAlertActivity extends Activity implements
-		SensorEventListener, Runnable, OnTouchListener
+		SensorEventListener, Runnable, OnTouchListener, LocationListener
 {
 	private static final String tag = AccelerationAlertActivity.class
 			.getSimpleName();
@@ -111,37 +117,108 @@ public class AccelerationAlertActivity extends Activity implements
 
 	private final static int WINDOW_SIZE = 150;
 
-	private boolean linearAccelerationActive = true;
+	// .csv log header labels
+	private final static String LOG_MAGNITUDE_AXIS_TITLE = "Magnitude";
+	private final static String LOG_EVENT_LAT_AXIS_TITLE = "Event Latitude";
+	private final static String LOG_EVENT_LON_AXIS_TITLE = "Event Longitude";
+	private final static String LOG_EVENT_TIME_AXIS_TITLE = "Event Time";
+	private final static String LOG_EVENT_MAX_ACCELERATION_AXIS_TITLE = "Event Max Acceleration";
+	private final static String LOG_EVENT_VELOCITY_AXIS_TITLE = "Event Velocity";
+	private final static String LOG_EVENT_MAX_THRESHOLD_AXIS_TITLE = "Max Threshold";
+	private final static String LOG_EVENT_MIN_THRESHOLD_AXIS_TITLE = "Min Threshold";
+	private final static String LOG_EVENT_MAX_COUNT_AXIS_TITLE = "Max Count";
+	private final static String LOG_EVENT_MIN_COUNT_AXIS_TITLE = "Min Count";
+	private final static String LOG_EVENT_ALPHA_AXIS_TITLE = "Alpha";
 
-	private boolean plotTaskActive = false;
-	private boolean logTaskActive = false;
+	// .csv meta header labels
+	private final static String META_TIME_AXIS_TITLE = "Time";
+	private final static String META_LAT_AXIS_TITLE = "Latitude";
+	private final static String META_LON_AXIS_TITLE = "Longitude";
+	private final static String META_START_LAT_AXIS_TITLE = "Start Latitude";
+	private final static String META_START_LON_AXIS_TITLE = "Start Longitude";
+	private final static String META_START_TIME_AXIS_TITLE = "Start Time";
+	private final static String META_STOP_LAT_AXIS_TITLE = "Stop Latitude";
+	private final static String META_STOP_LON_AXIS_TITLE = "Stop Longitude";
+	private final static String META_STOP_TIME_AXIS_TITLE = "Stop Time";
+	private final static String META_EVENT_COUNT_0_TITLE = "0.2 G";
+	private final static String META_EVENT_COUNT_1_TITLE = "0.3 G";
+	private final static String META_EVENT_COUNT_2_TITLE = "0.4 G";
+	private final static String META_EVENT_COUNT_3_TITLE = "0.5 G";
+	private final static String META_SAFE_EVENT_TITLE = "Safe Trip";
+	private final static String META_UNSAFE_EVENT_TITLE = "Unsafe Trip";
+	private final static String META_NEUTRAL_EVENT_TITLE = "Neutral Trip";
 
-	private boolean start = false;
-
+	// Keep track of active acceleration events.
 	private boolean accelerationEventActive = false;
 
+	// Indicate the Acceleration LPF is ready.
 	private boolean filterReady = false;
+
+	// Indicate that linear acceleration is active.
+	private boolean linearAccelerationActive = true;
+
+	// Indicate that the start location has been acquired. This is the location
+	// when the start button is pressed.
+	private boolean locationStartAcquired = false;
+	// Indicate that the stop location has been acquired. This is the location
+	// when the start button is pressed.
+	private boolean locationStopAcquired = false;
+	// Indicate that the event location has been acquired. This is the location
+	// when an acceleration event occurs.
+	private boolean locationEventAcquired = false;
+
+	// Keep track of the log task.
+	private boolean logTaskActive = false;
+	// Keep track of the plot task.
+	private boolean plotTaskActive = false;
 
 	// Indicate if a static alpha should be used for the LPF Android Developer
 	private boolean staticAlpha = true;
 
-	// Decimal formats for the UI outputs
-	private DecimalFormat df;
+	// Keep track of when the acceleration event search is active.
+	private boolean start = false;
 
-	// Graph plot for the UI outputs
-	private DynamicPlot dynamicPlot;
+	// Indicate that emails containing the logs should be sent when the trip
+	// ends.
+	private boolean emailLog = false;
+
+	// Indicate the drivers impression on the safety of the trip.
+	private boolean tripSafe = false;
+	private boolean tripUnsafe = false;
+	private boolean tripNeutral = false;
+
+	// Keep track of the latitudes.
+	private double latitudeStart = 0.0;
+	private double latitudeStop = 0.0;
+	private double latitudeEvent = 0.0;
+
+	// Keep track of the longitudes.
+	private double longitudeStart = 0.0;
+	private double longitudeStop = 0.0;
+	private double longitudeEvent = 0.0;
+
+	private double velocityEvent = 0.0;
 
 	// The static alpha for the LPF Android Developer
-	private float lpfStaticAlpha = 0.99f;
+	private float lpfStaticAlpha = 0.3f;
 
 	// Touch to zoom constants for the dynamicPlot
 	private float distance = 0;
 	private float zoom = 1.2f;
 
+	// Keep track of the maximum acceleration for each log.
+	private float maxAcceleration = 0;
+
+	// The default thresholds for the acceleration detection. The measured
+	// acceleration must exceed the thresholds before an acceleration event will
+	// start and stop.
 	private float thresholdMax = 0.5f;
 	private float thresholdMin = 0.15f;
+
+	// The magnitude of the acceleration.
 	private float magnitude = 0;
 
+	// The frequency and delta time from the acceleration sensor.
 	private float frequency = 0;
 	private float dt = 0;
 
@@ -149,36 +226,82 @@ public class AccelerationAlertActivity extends Activity implements
 	private float[] acceleration = new float[3];
 	private float[] lpfAcceleration = new float[3];
 
-	// Handler for the UI plots so everything plots smoothly
-	private Handler handler;
+	// Keep track of the number of acceleration events.
+	private int eventCount0 = 0;
+	private int eventCount1 = 0;
+	private int eventCount2 = 0;
+	private int eventCount3 = 0;
 
 	// The generation of the log output
 	private int generation = 0;
 
+	// The counts for the acceleration detection. The measured
+	// acceleration must exceed the thresholds for a consecutive number of
+	// counts before an acceleration event will start or stop.
 	private int thresholdCountMax = 0;
 	private int thresholdCountMin = 0;
 
+	// The count thresholds for the acceleration detection. The measured
+	// acceleration must exceed the thresholds for a consecutive number of
+	// counts before an acceleration event will start or stop.
 	private int thresholdCountMaxLimit = 3;
 	private int thresholdCountMinLimit = 5;
 
+	// A number of samples that have been passed through the low-pass-filter.
 	private int filterCount = 0;
 
 	// Color keys for the LPF Android Developer plot
 	private int plotLPFMagnitudeAxisColor;
 
+	// Keep track of the time stamps.
+	private long timeEvent = 0;
+	private long timeStart = 0;
+	private long timeStop = 0;
 	private long timeOld = 0;
 
+	// Time stamp to update the GPS after a certain time period.
+	private long gpsTimeStamp = 0;
+
+	// Keep track of all the logs for one trip.
+	private ArrayList<File> logs;
+
+	// Keep track of the route for one trip.
+	private ArrayList<Double> latitudes;
+	private ArrayList<Double> longitudes;
+	private ArrayList<Long> timeStamps;
+
+	// Decimal formats for the UI outputs
+	private DecimalFormat df;
+
+	// Graph plot for the UI outputs
+	private DynamicPlot dynamicPlot;
+
+	// Handler for the UI plots so everything plots smoothly
+	private Handler handler;
+
+	// We need to register for Location updates.
+	private LocationManager locationManager;
+
+	// Keep track of the rolling window of plot magnitudes.
 	private LinkedList<Number> plotMagnitudeList;
 
+	// Iterators for manipulating, plotting and persisting the data.
+	private Iterator<Number> logMaxMagnitudeIterator;
 	private Iterator<Number> logMagnitudeIterator;
 	private Iterator<Long> logTimeStampIterator;
 
+	// Keep track of the rolling window for data log magnitudes.
 	private LinkedList<Long> timeStampList;
 	private LinkedList<Number> magnitudeList;
 
+	// The location of the device.
+	private Location location;
+
+	// Mean filters for smoothing the data.
 	private MeanFilterByValue meanFilterMagnitude;
 	private MeanFilterByArray meanFilterAcceleration;
 
+	// The low pass filter for finding the linear acceleration.
 	private LowPassFilter lowPassFilter;
 
 	// Plot colors
@@ -187,8 +310,8 @@ public class AccelerationAlertActivity extends Activity implements
 	// Sensor manager to access the accelerometer sensor
 	private SensorManager sensorManager;
 
-	// LPF Android Developer plot tiltes
-	private String plotLPFMagnitudeAxisTitle = "Magnitude";
+	// Meta data log.
+	private String meta;
 
 	// Output log
 	private String log;
@@ -209,6 +332,15 @@ public class AccelerationAlertActivity extends Activity implements
 
 		// Read in the saved prefs
 		readPrefs();
+
+		logs = new ArrayList<File>();
+
+		latitudes = new ArrayList<Double>();
+		longitudes = new ArrayList<Double>();
+		timeStamps = new ArrayList<Long>();
+
+		locationManager = (LocationManager) this
+				.getSystemService(Context.LOCATION_SERVICE);
 
 		// Get the sensor manager ready
 		sensorManager = (SensorManager) this
@@ -237,12 +369,18 @@ public class AccelerationAlertActivity extends Activity implements
 					startButton
 							.setBackgroundResource(R.drawable.stop_button_background);
 					startButton.setText("Stop");
+
+					timeStart = System.currentTimeMillis();
+
+					locationStartAcquired = false;
 				}
 				else
 				{
 					startButton
 							.setBackgroundResource(R.drawable.start_button_background);
 					startButton.setText("Start");
+
+					showSafetyDialog();
 				}
 
 			}
@@ -257,6 +395,9 @@ public class AccelerationAlertActivity extends Activity implements
 		initPlots();
 
 		handler = new Handler();
+
+		// Keep the window open...
+		getWindow().addFlags(LayoutParams.FLAG_KEEP_SCREEN_ON);
 	}
 
 	public float getLPFStaticAlpha()
@@ -289,6 +430,7 @@ public class AccelerationAlertActivity extends Activity implements
 	{
 		super.onPause();
 
+		locationManager.removeUpdates(this);
 		sensorManager.unregisterListener(this);
 
 		writePrefs();
@@ -305,6 +447,10 @@ public class AccelerationAlertActivity extends Activity implements
 
 		handler.post(this);
 
+		// Register the kalman filter for sensor updates every 5 minutes...
+		locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0,
+				0, this);
+
 		// Register for sensor updates.
 		sensorManager.registerListener(this,
 				sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
@@ -312,9 +458,28 @@ public class AccelerationAlertActivity extends Activity implements
 	}
 
 	@Override
-	public void onAccuracyChanged(Sensor sensor, int accuracy)
+	public void onLocationChanged(Location location)
 	{
-		// Not used...
+		this.location = location;
+
+		// If the model was started and a start location has not been set.
+		if (start && !locationStartAcquired)
+		{
+			latitudeStart = this.location.getLatitude();
+			longitudeStart = this.location.getLongitude();
+
+			locationStartAcquired = true;
+			locationStopAcquired = false;
+		}
+
+		if (start && System.currentTimeMillis() - gpsTimeStamp > 30000)
+		{
+			latitudes.add(this.location.getLatitude());
+			longitudes.add(this.location.getLongitude());
+			timeStamps.add(this.location.getTime());
+
+			gpsTimeStamp = System.currentTimeMillis();
+		}
 	}
 
 	@Override
@@ -392,24 +557,34 @@ public class AccelerationAlertActivity extends Activity implements
 			if (start)
 			{
 				// Only attempt logging of an acceleration event if the
-				// magnitude is
-				// larger than the threshold, we aren't already in a
-				// acceleration
-				// event and the filters are ready.
+				// magnitude is larger than the threshold, we aren't already in
+				// a
+				// acceleration event and the filters are ready.
 				if (magnitude > thresholdMax && filterReady)
 				{
 					thresholdCountMax++;
 
 					// Get more than five consecutive measurements above the
-					// signal
-					// threshold to activate the logging.
+					// signal threshold to activate the logging.
 					if (thresholdCountMax > thresholdCountMaxLimit)
 					{
 						accelerationEventActive = true;
 
+						if (!locationEventAcquired)
+						{
+							if (this.location != null)
+							{
+								latitudeEvent = this.location.getLatitude();
+								longitudeEvent = this.location.getLongitude();
+								velocityEvent = this.location.getSpeed();
+								timeEvent = this.location.getTime();
+
+								locationEventAcquired = true;
+							}
+						}
+
 						// If we get an event active, reset the minimum
-						// threshold
-						// count.
+						// threshold count.
 						thresholdCountMin = 0;
 					}
 				}
@@ -422,6 +597,7 @@ public class AccelerationAlertActivity extends Activity implements
 					if (thresholdCountMin > thresholdCountMinLimit)
 					{
 						accelerationEventActive = false;
+						locationEventAcquired = false;
 
 						PlotTask plotTask = new PlotTask();
 						plotTask.execute();
@@ -581,7 +757,7 @@ public class AccelerationAlertActivity extends Activity implements
 	 */
 	private void addLPFMagnitudePlot()
 	{
-		addPlot(plotLPFMagnitudeAxisTitle, PLOT_LPF_MAGNITUDE_KEY,
+		addPlot(LOG_MAGNITUDE_AXIS_TITLE, PLOT_LPF_MAGNITUDE_KEY,
 				plotLPFMagnitudeAxisColor);
 	}
 
@@ -598,6 +774,22 @@ public class AccelerationAlertActivity extends Activity implements
 	private void addPlot(String title, int key, int color)
 	{
 		dynamicPlot.addSeriesPlot(title, key, color);
+	}
+
+	private void finishSession()
+	{
+		Log.d(tag, "FINISH!");
+
+		latitudeStop = AccelerationAlertActivity.this.location.getLatitude();
+		longitudeStop = AccelerationAlertActivity.this.location.getLongitude();
+
+		locationStopAcquired = true;
+
+		timeStop = System.currentTimeMillis();
+
+		// Email the logs
+		EmailTask emailTask = new EmailTask();
+		emailTask.execute();
 	}
 
 	/**
@@ -699,12 +891,98 @@ public class AccelerationAlertActivity extends Activity implements
 		}
 	}
 
+	private File generateMetaData()
+	{
+		// Convert our UTC time stamp into a date-time...
+		SimpleDateFormat dateFormat = new SimpleDateFormat("hh:ss MM/dd/yyyy",
+				Locale.US);
+		dateFormat.setTimeZone(TimeZone.getDefault());
+
+		String headers = "";
+
+		headers += META_TIME_AXIS_TITLE + ",";
+
+		headers += META_LAT_AXIS_TITLE + ",";
+
+		headers += META_LON_AXIS_TITLE + ",";
+
+		headers += META_START_LAT_AXIS_TITLE + ",";
+
+		headers += META_START_LON_AXIS_TITLE + ",";
+
+		headers += META_START_TIME_AXIS_TITLE + ",";
+
+		headers += META_STOP_LAT_AXIS_TITLE + ",";
+
+		headers += META_STOP_LON_AXIS_TITLE + ",";
+
+		headers += META_STOP_TIME_AXIS_TITLE + ",";
+
+		headers += META_EVENT_COUNT_0_TITLE + ",";
+
+		headers += META_EVENT_COUNT_1_TITLE + ",";
+
+		headers += META_EVENT_COUNT_2_TITLE + ",";
+
+		headers += META_EVENT_COUNT_3_TITLE + ",";
+
+		headers += META_SAFE_EVENT_TITLE + ",";
+
+		headers += META_UNSAFE_EVENT_TITLE + ",";
+
+		headers += META_NEUTRAL_EVENT_TITLE + ",";
+
+		meta = headers;
+
+		meta += System.getProperty("line.separator");
+
+		meta += dateFormat.format(timeStamps.get(0)) + ",";
+
+		meta += latitudes.get(0) + ",";
+
+		meta += longitudes.get(0) + ",";
+
+		meta += latitudeStart + ",";
+		meta += longitudeStart + ",";
+
+		meta += dateFormat.format(timeStart) + ",";
+
+		meta += latitudeStop + ",";
+		meta += longitudeStop + ",";
+
+		meta += dateFormat.format(timeStop) + ",";
+
+		meta += eventCount0 + ",";
+
+		meta += eventCount1 + ",";
+
+		meta += eventCount2 + ",";
+
+		meta += eventCount3 + ",";
+
+		meta += String.valueOf(tripSafe) + ",";
+		meta += String.valueOf(tripUnsafe) + ",";
+		meta += String.valueOf(tripNeutral) + ",";
+
+		for (int i = 1; i < latitudes.size(); i++)
+		{
+			meta += System.getProperty("line.separator");
+
+			meta += dateFormat.format(timeStamps.get(i)) + ",";
+
+			meta += latitudes.get(i) + ",";
+
+			meta += longitudes.get(i);
+		}
+
+		return writeMetaToFile();
+	}
+
 	/**
 	 * Log output data to an external .csv file.
 	 */
-	private void logData()
+	private File generateLogData()
 	{
-
 		runOnUiThread(new Runnable()
 		{
 			public void run()
@@ -722,11 +1000,52 @@ public class AccelerationAlertActivity extends Activity implements
 
 		headers += "Timestamp" + ",";
 
-		headers += this.plotLPFMagnitudeAxisTitle + ",";
+		headers += LOG_MAGNITUDE_AXIS_TITLE + ",";
 
-		log = headers + "\n";
+		headers += LOG_EVENT_LAT_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_LON_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_MAX_ACCELERATION_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_VELOCITY_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_TIME_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_MAX_THRESHOLD_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_MIN_THRESHOLD_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_MAX_COUNT_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_MIN_COUNT_AXIS_TITLE + ",";
+
+		headers += LOG_EVENT_ALPHA_AXIS_TITLE + ",";
+
+		log = headers;
 
 		long startTime = 0;
+
+		int count = 0;
+
+		// Convert our UTC time stamp into a date-time...
+		SimpleDateFormat dateFormat = new SimpleDateFormat("hh:ss MM/dd/yyyy",
+				Locale.US);
+		dateFormat.setTimeZone(TimeZone.getDefault());
+
+		maxAcceleration = 0;
+
+		// Find the maximum value in the set.
+		while (logMaxMagnitudeIterator.hasNext())
+		{
+			float value = logMaxMagnitudeIterator.next().floatValue();
+
+			// Find the maximum value.
+			if (value > maxAcceleration)
+			{
+				maxAcceleration = value;
+			}
+		}
 
 		while (logTimeStampIterator.hasNext() && logMagnitudeIterator.hasNext())
 		{
@@ -740,16 +1059,198 @@ public class AccelerationAlertActivity extends Activity implements
 			log += System.getProperty("line.separator");
 			log += generation++ + ",";
 			log += ((time - startTime) / 1000000000.0f) + ",";
-			log += logMagnitudeIterator.next();
+
+			log += logMagnitudeIterator.next().floatValue() + ",";
+
+			// Data displayed only on the first row after the headers...
+			if (count == 0)
+			{
+				log += latitudeEvent + ",";
+				log += longitudeEvent + ",";
+				log += maxAcceleration + ",";
+				log += velocityEvent + ",";
+
+				// Convert our UTC time stamp into a date-time...
+				log += dateFormat.format(timeEvent) + ",";
+
+				log += thresholdMax + ",";
+				log += thresholdMin + ",";
+
+				log += thresholdCountMax + ",";
+				log += thresholdCountMin + ",";
+
+				log += lpfStaticAlpha + ",";
+			}
+
+			count++;
 		}
 
-		writeLogToFile();
+		// Categorize the log by the maximum recorded acceleration.
+		categorizeLog(maxAcceleration);
+
+		return writeLogToFile();
+	}
+
+	private void categorizeLog(float value)
+	{
+		if (value > 0.2 && value <= 0.3)
+		{
+			eventCount0++;
+		}
+		if (value > 0.3 && value <= 0.4)
+		{
+			eventCount1++;
+		}
+		if (value > 0.4 && value <= 0.5)
+		{
+			eventCount2++;
+		}
+		if (value > 0.5)
+		{
+			eventCount3++;
+		}
+	}
+
+	private void sendTripEmail()
+	{
+		SharedPreferences prefs = PreferenceManager
+				.getDefaultSharedPreferences(this);
+		String email = prefs.getString("email_host_address", "");
+		String password = prefs.getString("email_host_password", "");
+		String recipient = prefs.getString("email_recipient_address", "");
+
+		if (!email.equals("") && !password.equals("") && !recipient.equals(""))
+		{
+			Mail mail = new Mail(email, password);
+
+			mail.setTo(new String[]
+			{ recipient });
+
+			mail.setFrom(Secure.getString(getContentResolver(),
+					Secure.ANDROID_ID));
+
+			mail.setSubject("Acceleration Alert Log");
+
+			mail.setBody("A log file from Acceleration Alert.");
+
+			try
+			{
+				// Add the meta data to the email first...
+				mail.addAttachment(generateMetaData().getAbsolutePath());
+
+				// Then add the log data to the email.
+				for (int i = 0; i < logs.size(); i++)
+				{
+					mail.addAttachment(logs.get(i).getAbsolutePath());
+				}
+
+				if (mail.send())
+				{
+					runOnUiThread(new Runnable()
+					{
+						public void run()
+						{
+							CharSequence text = "Email Sent";
+							int duration = Toast.LENGTH_SHORT;
+
+							Toast toast = Toast.makeText(
+									AccelerationAlertActivity.this, text,
+									duration);
+							toast.show();
+						}
+					});
+				}
+			}
+			catch (Exception e)
+			{
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
 	}
 
 	/**
 	 * Write the logged data out to a persisted file.
 	 */
-	private void writeLogToFile()
+	private File writeMetaToFile()
+	{
+		Calendar c = Calendar.getInstance();
+		String filename = "AccelerationAlert-TripMeta-" + c.get(Calendar.YEAR)
+				+ "-" + c.get(Calendar.DAY_OF_WEEK_IN_MONTH) + "-"
+				+ c.get(Calendar.HOUR) + "-" + c.get(Calendar.HOUR) + "-"
+				+ c.get(Calendar.MINUTE) + "-" + c.get(Calendar.SECOND)
+				+ ".csv";
+
+		File dir = new File(Environment.getExternalStorageDirectory()
+				+ File.separator + "AccelerationAlert" + File.separator
+				+ "Trip" + File.separator + "Meta");
+
+		if (!dir.exists())
+		{
+			dir.mkdirs();
+		}
+
+		File file = new File(dir, filename);
+
+		FileOutputStream fos;
+		byte[] data = meta.getBytes();
+		try
+		{
+			fos = new FileOutputStream(file);
+			fos.write(data);
+			fos.flush();
+			fos.close();
+
+			runOnUiThread(new Runnable()
+			{
+				public void run()
+				{
+					CharSequence text = "Trip Saved";
+					int duration = Toast.LENGTH_SHORT;
+
+					Toast toast = Toast.makeText(
+							AccelerationAlertActivity.this, text, duration);
+					toast.show();
+				}
+			});
+
+		}
+		catch (FileNotFoundException e)
+		{
+			runOnUiThread(new Runnable()
+			{
+				public void run()
+				{
+					CharSequence text = "Tri Error";
+					int duration = Toast.LENGTH_SHORT;
+
+					Toast toast = Toast.makeText(
+							AccelerationAlertActivity.this, text, duration);
+					toast.show();
+				}
+			});
+		}
+		catch (IOException e)
+		{
+			// handle exception
+		}
+		finally
+		{
+			// Update the MediaStore so we can view the file without rebooting.
+			// Note that it appears that the ACTION_MEDIA_MOUNTED approach is
+			// now blocked for non-system apps on Android 4.4.
+			MediaScannerConnection.scanFile(this, new String[]
+			{ "file://" + Environment.getExternalStorageDirectory() }, null,
+					null);
+		}
+
+		return file;
+	}
+
+	/**
+	 * Write the logged data out to a persisted file.
+	 */
+	private File writeLogToFile()
 	{
 		Calendar c = Calendar.getInstance();
 		String filename = "AccelerationAlert-" + c.get(Calendar.YEAR) + "-"
@@ -820,6 +1321,8 @@ public class AccelerationAlertActivity extends Activity implements
 			{ "file://" + Environment.getExternalStorageDirectory() }, null,
 					null);
 		}
+
+		return file;
 	}
 
 	/**
@@ -855,6 +1358,85 @@ public class AccelerationAlertActivity extends Activity implements
 
 		linearAccelerationActive = prefs.getBoolean(
 				ConfigActivity.LINEAR_ACCELERATION_PREFERENCE, true);
+
+		prefs = PreferenceManager.getDefaultSharedPreferences(this);
+		emailLog = prefs.getBoolean("email_logs_preference", false);
+	}
+
+	private void setEventCount0()
+	{
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_event_count_0);
+
+		textViewThresholdCountMin.setText(String.valueOf(this.eventCount0));
+	}
+
+	private void setEventCount1()
+	{
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_event_count_1);
+
+		textViewThresholdCountMin.setText(String.valueOf(this.eventCount1));
+	}
+
+	private void setEventCount2()
+	{
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_event_count_2);
+
+		textViewThresholdCountMin.setText(String.valueOf(this.eventCount2));
+	}
+
+	private void setEventCount3()
+	{
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_event_count_3);
+
+		textViewThresholdCountMin.setText(String.valueOf(this.eventCount3));
+	}
+
+	private void showSafetyDialog()
+	{
+		AlertDialog alertDialog = new AlertDialog.Builder(this).create();
+
+		alertDialog.setTitle("Trip Comlete");
+
+		alertDialog.setMessage("Rate your trip!");
+
+		alertDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Safe",
+				new DialogInterface.OnClickListener()
+				{
+
+					public void onClick(DialogInterface dialog, int id)
+					{
+						tripSafe = true;
+						finishSession();
+					}
+				});
+
+		alertDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Unsafe",
+				new DialogInterface.OnClickListener()
+				{
+
+					public void onClick(DialogInterface dialog, int id)
+					{
+						tripUnsafe = true;
+						finishSession();
+					}
+				});
+
+		alertDialog.setButton(AlertDialog.BUTTON_NEUTRAL, "Neutral",
+				new DialogInterface.OnClickListener()
+				{
+
+					public void onClick(DialogInterface dialog, int id)
+					{
+						tripNeutral = true;
+						finishSession();
+					}
+				});
+
+		alertDialog.show();
 	}
 
 	private void showHelpDialog()
@@ -924,10 +1506,11 @@ public class AccelerationAlertActivity extends Activity implements
 		{
 			logTaskActive = true;
 
+			logMaxMagnitudeIterator = magnitudeList.iterator();
 			logMagnitudeIterator = magnitudeList.iterator();
 			logTimeStampIterator = timeStampList.iterator();
 
-			logData();
+			logs.add(generateLogData());
 
 			return null;
 		}
@@ -938,7 +1521,77 @@ public class AccelerationAlertActivity extends Activity implements
 			logTaskActive = false;
 
 			playNotification();
+
+			setEventCount0();
+			setEventCount1();
+			setEventCount2();
+			setEventCount3();
+		}
+	}
+
+	private class EmailTask extends AsyncTask<Void, Void, Void>
+	{
+
+		@Override
+		protected Void doInBackground(Void... params)
+		{
+			if (emailLog)
+			{
+				sendTripEmail();
+			}
+
+			return null;
 		}
 
+		@Override
+		protected void onPostExecute(Void params)
+		{
+			// Reset the data.
+			logs = new ArrayList<File>();
+			timeStamps = new ArrayList<Long>();
+			latitudes = new ArrayList<Double>();
+			longitudes = new ArrayList<Double>();
+
+			tripSafe = false;
+			tripUnsafe = false;
+			tripNeutral = false;
+
+			eventCount0 = 0;
+			eventCount1 = 0;
+			eventCount2 = 0;
+			eventCount3 = 0;
+
+			setEventCount0();
+			setEventCount1();
+			setEventCount2();
+			setEventCount3();
+
+			log = "";
+			meta = "";
+		}
+	}
+
+	@Override
+	public void onProviderDisabled(String arg0)
+	{
+		// Not used...
+	}
+
+	@Override
+	public void onProviderEnabled(String arg0)
+	{
+		// Not used...
+	}
+
+	@Override
+	public void onStatusChanged(String arg0, int arg1, Bundle arg2)
+	{
+		// Not used...
+	}
+
+	@Override
+	public void onAccuracyChanged(Sensor sensor, int accuracy)
+	{
+		// Not used...
 	}
 }

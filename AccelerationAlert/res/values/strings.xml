@@ -13,6 +13,7 @@
     <string name="developer_url">KircherElectronics.com</string>
     <string name="log_data_label">Log Data</string>
     <string name="default_value">0.00</string>
+    <string name="default_int_value">0</string>
     <string name="label_threshold_max">Max Threshold:</string>
     <string name="label_threshold_min">Min Threshold:</string>
     <string name="label_set">Set Values</string>
@@ -24,5 +25,9 @@
     <string name="label_min_count">Min Count:</string>
     <string name="label_lpf_alpha">LPF Alpha:</string>
     <string name="label_sensor_frequency">Sensor Hz:</string>
+    <string name="label_event_count_0">0.2 G:</string>
+    <string name="label_event_count_1">0.3 G:</string>
+    <string name="label_event_count_2">0.4 G:</string>
+    <string name="label_event_count_3">0.5+ G:</string>
 
 </resources>

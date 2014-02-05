@@ -1,5 +1,7 @@
 package com.kircherelectronics.accelerationalert.filter;
 
+import android.util.Log;
+
 import com.kircherelectronics.accelerationalert.statistics.StdDev;
 
 /*
@@ -110,14 +112,14 @@ public class LPFAndroidDeveloper implements LowPassFilter
 				+ Math.pow(this.input[1], 2) + Math.pow(this.input[2], 2)));
 
 		double var = varianceAccel.addSample(magnitude);
-		
-		//Log.d(tag, String.valueOf(var));
 
+		//Log.d(tag, String.valueOf(var));
+		
 		if (filterReady)
 		{
 			// Only calculate the gravity if the device isn't under linear
 			// acceleration...
-			if (var < 0.05)
+			if (var < 0.01)
 			{
 				gravity[0] = alpha * gravity[0] + (1 - alpha) * input[0];
 				gravity[1] = alpha * gravity[1] + (1 - alpha) * input[1];

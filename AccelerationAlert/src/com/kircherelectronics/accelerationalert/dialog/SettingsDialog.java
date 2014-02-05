@@ -3,8 +3,10 @@ package com.kircherelectronics.accelerationalert.dialog;
 import com.kircherelectronics.accelerationalert.AccelerationAlertActivity;
 import com.kircherelectronics.accelerationalert.R;
 
+import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.Window;
@@ -54,6 +56,7 @@ public class SettingsDialog extends Dialog
 		{
 			public void onClick(View v)
 			{
+				// Set the UI
 				context.setThresholdMax(Float.valueOf(etThresholdMax.getText()
 						.toString()));
 				context.setThresholdMin(Float.valueOf(etThresholdMin.getText()
@@ -66,6 +69,27 @@ public class SettingsDialog extends Dialog
 
 				context.setLPFStaticAlpha(Float.valueOf(etLPFAlpha.getText()
 						.toString()));
+				
+				// Set the prefs
+				SharedPreferences prefs = SettingsDialog.this.getContext().getSharedPreferences("lpf_prefs",
+						Activity.MODE_PRIVATE);
+
+				prefs.edit().putFloat("threshold_max", Float.valueOf(etThresholdMax.getText()
+						.toString()));
+				prefs.edit().putFloat("threshold_min", Float.valueOf(etThresholdMin.getText()
+						.toString()));
+
+				prefs.edit().putInt("threshold_count_max", Integer
+						.valueOf(etThresholdCountMax.getText().toString()));
+				prefs.edit().putInt("threshold_count_min", Integer
+						.valueOf(etThresholdCountMin.getText().toString()));
+
+				prefs.edit().putFloat("lpf_alpha", Float.valueOf(etLPFAlpha.getText()
+						.toString()));
+
+				prefs.edit().commit();
+				
+				SettingsDialog.this.dismiss();
 			}
 		});
 
