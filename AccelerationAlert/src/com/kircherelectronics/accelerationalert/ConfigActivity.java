@@ -15,11 +15,13 @@ import android.preference.PreferenceScreen;
 import android.util.Log;
 
 /**
- * Configuration activity.
+ * Configuration activity manages the configuration for the application.
  */
 public class ConfigActivity extends PreferenceActivity implements
 		OnPreferenceChangeListener
 {
+
+	private static final String tag = ConfigActivity.class.getSimpleName();
 
 	public static final String LINEAR_ACCELERATION_PREFERENCE = "linear_acceleration_preference";
 
@@ -39,18 +41,17 @@ public class ConfigActivity extends PreferenceActivity implements
 		emailHostCategory = (PreferenceCategory) findPreference("email_host_account_preferences");
 		emailRecipientCategory = (PreferenceCategory) findPreference("email_recipient_account_preferences");
 
-		emailPreference = (Preference) this
-				.findPreference("email_logs_preference");
+		emailPreference = (Preference) findPreference("email_logs_preference");
 
 		SharedPreferences prefs = PreferenceManager
 				.getDefaultSharedPreferences(this);
-		toggleEmailCategories(prefs.getBoolean("email_logs_preference", false));
 
 		emailPreference.setOnPreferenceChangeListener(this);
 
 		// Setup the email host account edit text to display the current
 		// value...
 		EditTextPreference editTextEmailHostAccount = (EditTextPreference) findPreference("email_host_address");
+
 		editTextEmailHostAccount
 				.setOnPreferenceChangeListener(new OnPreferenceChangeListener()
 				{
@@ -106,6 +107,7 @@ public class ConfigActivity extends PreferenceActivity implements
 		// Setup the email recipient account edit text to display the current
 		// value...
 		EditTextPreference editTextEmailRecipientAccount = (EditTextPreference) findPreference("email_recipient_address");
+
 		editTextEmailRecipientAccount
 				.setOnPreferenceChangeListener(new OnPreferenceChangeListener()
 				{
@@ -119,6 +121,8 @@ public class ConfigActivity extends PreferenceActivity implements
 				});
 		editTextEmailRecipientAccount.setSummary(prefs.getString(
 				"email_recipient_address", "Enter Email Address"));
+		
+		toggleEmailCategories(prefs.getBoolean("email_logs_preference", false));
 	}
 
 	@Override

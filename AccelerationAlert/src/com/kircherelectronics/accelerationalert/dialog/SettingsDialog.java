@@ -1,23 +1,70 @@
 package com.kircherelectronics.accelerationalert.dialog;
 
-import com.kircherelectronics.accelerationalert.AccelerationAlertActivity;
-import com.kircherelectronics.accelerationalert.R;
-
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.Window;
 import android.widget.Button;
 import android.widget.EditText;
 
+import com.kircherelectronics.accelerationalert.R;
+
+/**
+ * A settings dialog for the acceleration event settings.
+ * 
+ * @author Kaleb
+ * 
+ */
 public class SettingsDialog extends Dialog
 {
-	public SettingsDialog(final AccelerationAlertActivity context)
+	private static final String tag = SettingsDialog.class.getSimpleName();
+
+	// The default thresholds for the acceleration detection. The measured
+	// acceleration must exceed the thresholds before an acceleration event will
+	// start and stop.
+	private float thresholdMax = 0.5f;
+	private float thresholdMin = 0.15f;
+
+	// The count thresholds for the acceleration detection. The measured
+	// acceleration must exceed the thresholds for a consecutive number of
+	// counts before an acceleration event will start or stop.
+	private int thresholdCountMaxLimit = 3;
+	private int thresholdCountMinLimit = 5;
+
+	// The static alpha for the LPF Android Developer
+	private float lpfStaticAlpha = 0.3f;
+
+	private Context context;
+
+	private EditText etThresholdMax;
+	private EditText etThresholdMin;
+
+	private EditText etThresholdCountMax;
+
+	private EditText etThresholdCountMin;
+
+	private EditText etLPFAlpha;
+
+	// Set the prefs
+	private SharedPreferences prefs;
+	private SharedPreferences.Editor editor;
+
+	public SettingsDialog(Context context)
 	{
 		super(context);
+
+		this.context = context;
+
+		prefs = this.context.getSharedPreferences("lpf_prefs",
+				Activity.MODE_PRIVATE);
+
+		editor = prefs.edit();
+
+		readPrefs();
 
 		LayoutInflater inflater = (LayoutInflater) getContext()
 				.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
@@ -26,28 +73,25 @@ public class SettingsDialog extends Dialog
 		this.setCancelable(true);
 		this.setCanceledOnTouchOutside(true);
 
-		final EditText etThresholdMax = (EditText) view
+		etThresholdMax = (EditText) view
 				.findViewById(R.id.edit_text_threshold_max);
-		final EditText etThresholdMin = (EditText) view
+		etThresholdMin = (EditText) view
 				.findViewById(R.id.edit_text_threshold_min);
 
-		etThresholdMax.setText(String.valueOf(context.getThresholdMax()));
-		etThresholdMin.setText(String.valueOf(context.getThresholdMin()));
+		etThresholdMax.setText(String.valueOf(thresholdMax));
+		etThresholdMin.setText(String.valueOf(thresholdMin));
 
-		final EditText etThresholdCountMax = (EditText) view
+		etThresholdCountMax = (EditText) view
 				.findViewById(R.id.edit_text_threshold_max_count);
-		final EditText etThresholdCountMin = (EditText) view
+		etThresholdCountMin = (EditText) view
 				.findViewById(R.id.edit_text_threshold_min_count);
 
-		etThresholdCountMax.setText(String.valueOf(context
-				.getThresholdCountMaxLimit()));
-		etThresholdCountMin.setText(String.valueOf(context
-				.getThresholdCountMinLimit()));
+		etThresholdCountMax.setText(String.valueOf(thresholdCountMaxLimit));
+		etThresholdCountMin.setText(String.valueOf(thresholdCountMinLimit));
 
-		final EditText etLPFAlpha = (EditText) view
-				.findViewById(R.id.edit_text_lpf_alpha);
+		etLPFAlpha = (EditText) view.findViewById(R.id.edit_text_lpf_alpha);
 
-		etLPFAlpha.setText(String.valueOf(context.getLPFStaticAlpha()));
+		etLPFAlpha.setText(String.valueOf(lpfStaticAlpha));
 
 		Button buttonSetValue = (Button) view
 				.findViewById(R.id.button_set_values);
@@ -57,43 +101,57 @@ public class SettingsDialog extends Dialog
 			public void onClick(View v)
 			{
 				// Set the UI
-				context.setThresholdMax(Float.valueOf(etThresholdMax.getText()
-						.toString()));
-				context.setThresholdMin(Float.valueOf(etThresholdMin.getText()
-						.toString()));
+				thresholdMax = Float.valueOf(etThresholdMax.getText()
+						.toString());
 
-				context.setThresholdMaxCountLimit(Integer
-						.valueOf(etThresholdCountMax.getText().toString()));
-				context.setThresholdMinCountLimit(Integer
-						.valueOf(etThresholdCountMin.getText().toString()));
+				thresholdMin = Float.valueOf(etThresholdMin.getText()
+						.toString());
 
-				context.setLPFStaticAlpha(Float.valueOf(etLPFAlpha.getText()
-						.toString()));
-				
-				// Set the prefs
-				SharedPreferences prefs = SettingsDialog.this.getContext().getSharedPreferences("lpf_prefs",
-						Activity.MODE_PRIVATE);
+				thresholdCountMaxLimit = Integer.valueOf(etThresholdCountMax
+						.getText().toString());
+				thresholdCountMinLimit = Integer.valueOf(etThresholdCountMin
+						.getText().toString());
 
-				prefs.edit().putFloat("threshold_max", Float.valueOf(etThresholdMax.getText()
-						.toString()));
-				prefs.edit().putFloat("threshold_min", Float.valueOf(etThresholdMin.getText()
-						.toString()));
+				lpfStaticAlpha = Float.valueOf(etLPFAlpha.getText().toString());
 
-				prefs.edit().putInt("threshold_count_max", Integer
-						.valueOf(etThresholdCountMax.getText().toString()));
-				prefs.edit().putInt("threshold_count_min", Integer
-						.valueOf(etThresholdCountMin.getText().toString()));
+				writePrefs();
 
-				prefs.edit().putFloat("lpf_alpha", Float.valueOf(etLPFAlpha.getText()
-						.toString()));
-
-				prefs.edit().commit();
-				
 				SettingsDialog.this.dismiss();
 			}
 		});
 
 		requestWindowFeature(Window.FEATURE_NO_TITLE);
 		this.setContentView(view);
+	}
+
+	/**
+	 * Read in the current user preferences.
+	 */
+	private void readPrefs()
+	{
+		thresholdMax = prefs.getFloat("threshold_max", thresholdMax);
+
+		thresholdMin = prefs.getFloat("threshold_min", thresholdMin);
+
+		thresholdCountMaxLimit = prefs.getInt("threshold_count_max",
+				thresholdCountMaxLimit);
+		thresholdCountMinLimit = prefs.getInt("threshold_count_min",
+				thresholdCountMinLimit);
+
+		lpfStaticAlpha = prefs.getFloat("lpf_alpha", lpfStaticAlpha);
+	}
+
+	private void writePrefs()
+	{
+		editor.putFloat("threshold_max", thresholdMax);
+
+		editor.putFloat("threshold_min", thresholdMin);
+
+		editor.putInt("threshold_count_max", thresholdCountMaxLimit);
+		editor.putInt("threshold_count_min", thresholdCountMinLimit);
+
+		editor.putFloat("lpf_alpha", lpfStaticAlpha);
+
+		editor.commit();
 	}
 }

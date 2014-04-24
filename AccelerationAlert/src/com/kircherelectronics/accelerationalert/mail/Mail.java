@@ -17,6 +17,12 @@ import javax.mail.internet.MimeBodyPart;
 import javax.mail.internet.MimeMessage;
 import javax.mail.internet.MimeMultipart;
 
+/**
+ * Java Mail wrapper for Android. Currently can only be used with Gmail.
+ * 
+ * @author Kaleb
+ * 
+ */
 public class Mail extends javax.mail.Authenticator
 {
 	private String _user;

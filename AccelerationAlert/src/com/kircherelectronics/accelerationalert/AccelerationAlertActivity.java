@@ -18,6 +18,7 @@ import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.DialogInterface.OnDismissListener;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.hardware.Sensor;
@@ -334,30 +335,28 @@ public class AccelerationAlertActivity extends Activity implements
 		readPrefs();
 
 		logs = new ArrayList<File>();
-
 		latitudes = new ArrayList<Double>();
 		longitudes = new ArrayList<Double>();
 		timeStamps = new ArrayList<Long>();
 
+		// Get the location manager
 		locationManager = (LocationManager) this
 				.getSystemService(Context.LOCATION_SERVICE);
 
-		// Get the sensor manager ready
+		// Get the sensor manager
 		sensorManager = (SensorManager) this
 				.getSystemService(Context.SENSOR_SERVICE);
 
-		meanFilterMagnitude = new MeanFilterByValue();
-		meanFilterMagnitude.setWindowSize(10);
-
-		meanFilterAcceleration = new MeanFilterByArray();
-		meanFilterAcceleration.setWindowSize(10);
-
+		// Linked lists to generate the log files...
 		timeStampList = new LinkedList<Long>();
 		magnitudeList = new LinkedList<Number>();
 
+		// The start/stop button...
 		final Button startButton = (Button) this
 				.findViewById(R.id.button_start);
 
+		// Listener for the start/stop button that starts and stops the
+		// application...
 		startButton.setOnClickListener(new View.OnClickListener()
 		{
 			public void onClick(View v)
@@ -366,97 +365,114 @@ public class AccelerationAlertActivity extends Activity implements
 
 				if (start)
 				{
+					// When started, change the button to a stop button...
 					startButton
 							.setBackgroundResource(R.drawable.stop_button_background);
 					startButton.setText("Stop");
 
+					// Get the start time...
 					timeStart = System.currentTimeMillis();
 
+					// Indicate that a start location is needed...
 					locationStartAcquired = false;
 				}
 				else
 				{
+					// When stopped, change the button to a start button...
 					startButton
 							.setBackgroundResource(R.drawable.start_button_background);
 					startButton.setText("Start");
 
+					// Show a dialog that asks the user to share their
+					// impression of the safety of the trip.
 					showSafetyDialog();
 				}
 
 			}
 		});
 
+		// Initialize the text views for the UI...
 		initTextViewOutputs();
 
+		// Initialize the filters...
 		initFilters();
 
 		// Initialize the plots
 		initColor();
 		initPlots();
 
+		// Get a handler to manage the UI update frequency...
 		handler = new Handler();
 
 		// Keep the window open...
 		getWindow().addFlags(LayoutParams.FLAG_KEEP_SCREEN_ON);
 	}
 
+	/**
+	 * Get the low-pass-filter static alpha.
+	 * 
+	 * @return The static alpha.
+	 */
 	public float getLPFStaticAlpha()
 	{
 		return this.lpfStaticAlpha;
 	}
 
-	public float getThresholdMax()
-	{
-		return this.thresholdMax;
-	}
-
-	public float getThresholdMin()
-	{
-		return this.thresholdMin;
-	}
-
+	/**
+	 * Return the number of consecutive acceleration measurements that exceed
+	 * the maximum threshold for an acceleration event to begin.
+	 * 
+	 * @return The maximum threshold count.
+	 */
 	public int getThresholdCountMaxLimit()
 	{
 		return this.thresholdCountMaxLimit;
 	}
 
+	/**
+	 * Return the number of consecutive acceleration measurements that are below
+	 * the minimum threshold for an acceleration event to stop.
+	 * 
+	 * @return The minimum threshold count.
+	 */
 	public int getThresholdCountMinLimit()
 	{
 		return this.thresholdCountMinLimit;
 	}
 
-	@Override
-	public void onPause()
+	/**
+	 * Return the maximum threshold that the acceleration must exceed for an
+	 * acceleration event to begin.
+	 * 
+	 * @return The maximum acceleration threshold.
+	 */
+	public float getThresholdMax()
 	{
-		super.onPause();
+		return this.thresholdMax;
+	}
 
-		locationManager.removeUpdates(this);
-		sensorManager.unregisterListener(this);
-
-		writePrefs();
-
-		handler.removeCallbacks(this);
+	/**
+	 * Return the minimum threshold that the acceleration must be below for an
+	 * acceleration event to stop.
+	 * 
+	 * @return The maximum acceleration threshold.
+	 */
+	public float getThresholdMin()
+	{
+		return this.thresholdMin;
 	}
 
 	@Override
-	public void onResume()
+	public boolean onCreateOptionsMenu(Menu menu)
 	{
-		super.onResume();
-
-		readPrefs();
-
-		handler.post(this);
-
-		// Register the kalman filter for sensor updates every 5 minutes...
-		locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0,
-				0, this);
-
-		// Register for sensor updates.
-		sensorManager.registerListener(this,
-				sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
-				SensorManager.SENSOR_DELAY_NORMAL);
+		MenuInflater inflater = getMenuInflater();
+		inflater.inflate(R.menu.settings_logger_menu, menu);
+		return true;
 	}
 
+	/**
+	 * Keep track of the location of the device with the GPS sensor.
+	 */
 	@Override
 	public void onLocationChanged(Location location)
 	{
@@ -465,6 +481,7 @@ public class AccelerationAlertActivity extends Activity implements
 		// If the model was started and a start location has not been set.
 		if (start && !locationStartAcquired)
 		{
+			// Get the latitude and longitude of the start position.
 			latitudeStart = this.location.getLatitude();
 			longitudeStart = this.location.getLongitude();
 
@@ -472,16 +489,90 @@ public class AccelerationAlertActivity extends Activity implements
 			locationStopAcquired = false;
 		}
 
+		// Get the position of the device every 30 seconds.
 		if (start && System.currentTimeMillis() - gpsTimeStamp > 30000)
 		{
+			// Store the route in their respective sets.
 			latitudes.add(this.location.getLatitude());
 			longitudes.add(this.location.getLongitude());
 			timeStamps.add(this.location.getTime());
 
+			// Keep track of the time between updates.
 			gpsTimeStamp = System.currentTimeMillis();
 		}
 	}
 
+	@Override
+	public void onPause()
+	{
+		super.onPause();
+
+		// Stop our sensors.
+		locationManager.removeUpdates(this);
+		sensorManager.unregisterListener(this);
+
+		// Stop the plot handler.
+		handler.removeCallbacks(this);
+
+		// Write out the prefs.
+		writePrefs();
+	}
+
+	/**
+	 * Event Handling for Individual menu item selected Identify single menu
+	 * item by it's id
+	 * */
+	@Override
+	public boolean onOptionsItemSelected(MenuItem item)
+	{
+		switch (item.getItemId())
+		{
+
+		// Show the settings dialog for the acceleration event detection.
+		case R.id.action_settings:
+			showSettingsDialog();
+			return true;
+
+			// Show the configuration for the application
+		case R.id.action_config:
+			Intent configIntent = new Intent(this, ConfigActivity.class);
+			startActivity(configIntent);
+			return true;
+
+			// Show the help dialog.
+		case R.id.action_help:
+			showHelpDialog();
+			return true;
+
+		default:
+			return super.onOptionsItemSelected(item);
+		}
+	}
+
+	@Override
+	public void onResume()
+	{
+		super.onResume();
+
+		// Read the prefs.
+		readPrefs();
+
+		// Register for location updates.
+		locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0,
+				0, this);
+
+		// Register for acceleration updates.
+		sensorManager.registerListener(this,
+				sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
+				SensorManager.SENSOR_DELAY_NORMAL);
+
+		// Start our UI handler.
+		handler.post(this);
+	}
+
+	/**
+	 * Process our acceleration sensor measurements.
+	 */
 	@Override
 	public void onSensorChanged(SensorEvent event)
 	{
@@ -497,29 +588,40 @@ public class AccelerationAlertActivity extends Activity implements
 		// Get the frequency...
 		frequency = 1 / dt;
 
+		// Update the UI with the sensor frequency...
 		textViewFrequency.setText(df.format(frequency));
 
+		// Reset our timestamp.
 		timeOld = event.timestamp;
 
+		// Only process the acceleration when the application is not already
+		// processing a plot or a log from a previous acceleration event.
 		if (!plotTaskActive && !logTaskActive)
 		{
 			// Get a local copy of the sensor values
 			System.arraycopy(event.values, 0, acceleration, 0,
 					event.values.length);
 
+			// Convert from meters/sec^2 to gravities of earth. Be aware that
+			// this is not a perfect estimation because the acceleration sensor
+			// is imperfect at measuring gravity.
 			acceleration[0] = acceleration[0] / SensorManager.GRAVITY_EARTH;
 			acceleration[1] = acceleration[1] / SensorManager.GRAVITY_EARTH;
 			acceleration[2] = acceleration[2] / SensorManager.GRAVITY_EARTH;
 
+			// Smooth the acceleration measurement with a mean filter.
 			acceleration = meanFilterAcceleration.filterFloat(acceleration);
 
+			// If the user has indicated that the linear acceleration should be
+			// used, attempt to estimate the linear acceleration.
 			if (linearAccelerationActive)
 			{
+				// Use the low-pass-filter to estimate linear acceleration.
 				lpfAcceleration = lowPassFilter.addSamples(acceleration);
 
-				// Magnitude should be equal to zero because the low pass filter
-				// should
-				// have accounted for gravity...
+				// Assuming the device is static, the magnitude should be equal
+				// to zero because the low pass filter should have accounted for
+				// gravity...
 				magnitude = meanFilterMagnitude.filterFloat((float) Math
 						.sqrt(Math.pow(lpfAcceleration[0], 2)
 								+ Math.pow(lpfAcceleration[1], 2)
@@ -527,14 +629,17 @@ public class AccelerationAlertActivity extends Activity implements
 			}
 			else
 			{
-				magnitude = event.values[2] / SensorManager.GRAVITY_EARTH;
+				// If we are just using the raw acceleration, the magnitude will
+				// be equal to the acceleration on the z-axis.
+				magnitude = acceleration[2];
 			}
 
-			// Add values to our lists
+			// Add values to our lists so we can keep a moving window of the
+			// recent acceleration activity.
 			magnitudeList.addLast(magnitude);
 			timeStampList.addLast(event.timestamp);
 
-			// Enforce our rolling window...
+			// Enforce our rolling window on the lists...
 			if (magnitudeList.size() > WINDOW_SIZE)
 			{
 				magnitudeList.removeFirst();
@@ -544,22 +649,26 @@ public class AccelerationAlertActivity extends Activity implements
 				timeStampList.removeFirst();
 			}
 
+			// Keep track of the number of samples that have been processed
+			// while the filters are initializing...
 			if (!filterReady)
 			{
 				filterCount++;
 			}
 
+			// We want to process at least 50 samples before the filters are
+			// ready to be used.
 			if (filterCount > 50)
 			{
 				filterReady = true;
 			}
 
+			// Only look for acceleration events when we are in start mode.
 			if (start)
 			{
 				// Only attempt logging of an acceleration event if the
 				// magnitude is larger than the threshold, we aren't already in
-				// a
-				// acceleration event and the filters are ready.
+				// a acceleration event and the filters are ready.
 				if (magnitude > thresholdMax && filterReady)
 				{
 					thresholdCountMax++;
@@ -570,6 +679,7 @@ public class AccelerationAlertActivity extends Activity implements
 					{
 						accelerationEventActive = true;
 
+						// Get the location of the acceleration event.
 						if (!locationEventAcquired)
 						{
 							if (this.location != null)
@@ -593,18 +703,25 @@ public class AccelerationAlertActivity extends Activity implements
 					thresholdCountMin++;
 
 					// Get more than ten consecutive measurements below the
-					// signal threshold to deactivate activate the logging.
+					// signal threshold to end the acceleration event.
 					if (thresholdCountMin > thresholdCountMinLimit)
 					{
+						// When the acceleration event stops we need to...
+
+						// Reset the acceleration event and location of the
+						// event.
 						accelerationEventActive = false;
 						locationEventAcquired = false;
 
+						// Plot the acceleration event on the UI...
 						PlotTask plotTask = new PlotTask();
 						plotTask.execute();
 
+						// Write the data out of a persisted .csv log file.
 						LogTask logTask = new LogTask();
 						logTask.execute();
 
+						// Rest the counts.
 						thresholdCountMin = 0;
 						thresholdCountMax = 0;
 					}
@@ -613,46 +730,8 @@ public class AccelerationAlertActivity extends Activity implements
 		}
 	}
 
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu)
-	{
-		MenuInflater inflater = getMenuInflater();
-		inflater.inflate(R.menu.settings_logger_menu, menu);
-		return true;
-	}
-
 	/**
-	 * Event Handling for Individual menu item selected Identify single menu
-	 * item by it's id
-	 * */
-	@Override
-	public boolean onOptionsItemSelected(MenuItem item)
-	{
-		switch (item.getItemId())
-		{
-
-		// Log the data
-		case R.id.action_settings:
-			showSettingsDialog();
-			return true;
-
-			// Log the data
-		case R.id.action_config:
-			Intent configIntent = new Intent(this, ConfigActivity.class);
-			startActivity(configIntent);
-			return true;
-
-		case R.id.action_help:
-			showHelpDialog();
-			return true;
-
-		default:
-			return super.onOptionsItemSelected(item);
-		}
-	}
-
-	/**
-	 * Pinch to zoom.
+	 * Pinch to zoom on the plot.
 	 */
 	@Override
 	public boolean onTouch(View v, MotionEvent e)
@@ -689,8 +768,8 @@ public class AccelerationAlertActivity extends Activity implements
 	}
 
 	/**
-	 * Output and logs are run on their own thread to keep the UI from hanging
-	 * and the output smooth.
+	 * The UI text views run on their own handler because we don't need to
+	 * update them constantly.
 	 */
 	@Override
 	public void run()
@@ -698,58 +777,6 @@ public class AccelerationAlertActivity extends Activity implements
 		handler.postDelayed(this, 32);
 
 		updateTextViewOutputs();
-	}
-
-	public void setLPFStaticAlpha(float alpha)
-	{
-		this.lpfStaticAlpha = alpha;
-
-		TextView textViewAlpha = (TextView) this
-				.findViewById(R.id.value_lpf_alpha);
-
-		textViewAlpha.setText(String.valueOf(this.lpfStaticAlpha));
-	}
-
-	public void setThresholdMax(float thresholdMax)
-	{
-		this.thresholdMax = thresholdMax;
-
-		TextView textViewThresholdMax = (TextView) this
-				.findViewById(R.id.value_max_threshold);
-
-		textViewThresholdMax.setText(String.valueOf(this.thresholdMax));
-	}
-
-	public void setThresholdMin(float thresholdMin)
-	{
-		this.thresholdMin = thresholdMin;
-
-		TextView textViewThresholdMin = (TextView) this
-				.findViewById(R.id.value_min_threshold);
-
-		textViewThresholdMin.setText(String.valueOf(this.thresholdMin));
-	}
-
-	public void setThresholdMaxCountLimit(int thresholdCountMaxLimit)
-	{
-		this.thresholdCountMaxLimit = thresholdCountMaxLimit;
-
-		TextView textViewThresholdCountMax = (TextView) this
-				.findViewById(R.id.value_max_threshold_count);
-
-		textViewThresholdCountMax.setText(String
-				.valueOf(this.thresholdCountMaxLimit));
-	}
-
-	public void setThresholdMinCountLimit(int thresholdCountMinLimit)
-	{
-		this.thresholdCountMinLimit = thresholdCountMinLimit;
-
-		TextView textViewThresholdCountMin = (TextView) this
-				.findViewById(R.id.value_min_threshold_count);
-
-		textViewThresholdCountMin.setText(String
-				.valueOf(this.thresholdCountMinLimit));
 	}
 
 	/**
@@ -776,121 +803,81 @@ public class AccelerationAlertActivity extends Activity implements
 		dynamicPlot.addSeriesPlot(title, key, color);
 	}
 
+	/**
+	 * Categorize an acceleration event by the maximum measured magnitude of
+	 * acceleration.
+	 * 
+	 * @param value
+	 *            The maximum measured magnitude from the acceleration event.
+	 */
+	private void categorizeAccelerationEvent(float value)
+	{
+		if (value > 0.2 && value <= 0.3)
+		{
+			eventCount0++;
+		}
+		if (value > 0.3 && value <= 0.4)
+		{
+			eventCount1++;
+		}
+		if (value > 0.4 && value <= 0.5)
+		{
+			eventCount2++;
+		}
+		if (value > 0.5)
+		{
+			eventCount3++;
+		}
+	}
+
+	/**
+	 * Get the distance between fingers for the touch to zoom.
+	 * 
+	 * @param event
+	 * @return
+	 */
+	private final float fingerDist(MotionEvent event)
+	{
+		float x = event.getX(0) - event.getX(1);
+		float y = event.getY(0) - event.getY(1);
+		return (float) Math.sqrt(x * x + y * y);
+	}
+
+	/**
+	 * Finish a session/trip. A session is defined as the period between the
+	 * start button being pressed and the stop button being pressed.
+	 */
 	private void finishSession()
 	{
-		Log.d(tag, "FINISH!");
+		if (AccelerationAlertActivity.this.location != null)
+		{
+			// Get the location where the session was stopped.
+			latitudeStop = AccelerationAlertActivity.this.location
+					.getLatitude();
+			longitudeStop = AccelerationAlertActivity.this.location
+					.getLongitude();
+		}
 
-		latitudeStop = AccelerationAlertActivity.this.location.getLatitude();
-		longitudeStop = AccelerationAlertActivity.this.location.getLongitude();
-
+		// Indicate the stop location has been aquired.
 		locationStopAcquired = true;
 
+		// Get the time the session was stopped.
 		timeStop = System.currentTimeMillis();
 
-		// Email the logs
+		// Attempt to email the logs and meta data acquired during the session.
 		EmailTask emailTask = new EmailTask();
 		emailTask.execute();
 	}
 
 	/**
-	 * Create the plot colors.
+	 * Generate the meta data .csv file. A meta data file is created for each
+	 * session/trip. The meta data includes the route, the start location, the
+	 * start time, the stop location, the stop time, a count of the acceleration
+	 * events classified by magnitude and the drivers impression of the safety
+	 * of the trip.
+	 * 
+	 * @return A file containing the .csv format meta data.
 	 */
-	private void initColor()
-	{
-		color = new PlotColor(this);
-
-		plotLPFMagnitudeAxisColor = color.getLightGreen();
-	}
-
-	/**
-	 * Initialize the filters.
-	 */
-	private void initFilters()
-	{
-		lowPassFilter = new LPFAndroidDeveloper();
-
-		lowPassFilter.setAlphaStatic(staticAlpha);
-		lowPassFilter.setAlpha(lpfStaticAlpha);
-	}
-
-	/**
-	 * Initialize the plots.
-	 */
-	private void initPlots()
-	{
-		View view = findViewById(R.id.ScrollView01);
-		view.setOnTouchListener(this);
-
-		// Create the graph plot
-		XYPlot plot = (XYPlot) findViewById(R.id.plot_sensor);
-		plot.setTitle("Acceleration");
-		dynamicPlot = new DynamicPlot(plot);
-		dynamicPlot.setMaxRange(1);
-		dynamicPlot.setMinRange(0);
-
-		addLPFMagnitudePlot();
-	}
-
-	/**
-	 * Initialize the Text View Sensor Outputs.
-	 */
-	private void initTextViewOutputs()
-	{
-		// Create the acceleration UI outputs
-		textViewXAxis = (TextView) findViewById(R.id.value_x_axis);
-		textViewYAxis = (TextView) findViewById(R.id.value_y_axis);
-		textViewZAxis = (TextView) findViewById(R.id.value_z_axis);
-
-		textViewFrequency = (TextView) findViewById(R.id.value_sensor_frequency);
-
-		// Format the UI outputs so they look nice
-		df = new DecimalFormat("#.##");
-	}
-
-	private void playNotification()
-	{
-		// Play a beep noise...
-		try
-		{
-			Uri notification = RingtoneManager
-					.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-			Ringtone r = RingtoneManager.getRingtone(getApplicationContext(),
-					notification);
-			r.play();
-		}
-		catch (Exception e)
-		{
-		}
-	}
-
-	/**
-	 * Plot the output data in the UI.
-	 */
-	private void plotData()
-	{
-		dynamicPlot.setDataFromList(plotMagnitudeList, PLOT_LPF_MAGNITUDE_KEY);
-
-		dynamicPlot.draw();
-	}
-
-	private void updateTextViewOutputs()
-	{
-		if (linearAccelerationActive)
-		{
-			// Update the view with the new acceleration data
-			textViewXAxis.setText(df.format(lpfAcceleration[0]));
-			textViewYAxis.setText(df.format(lpfAcceleration[1]));
-			textViewZAxis.setText(df.format(lpfAcceleration[2]));
-		}
-		else
-		{
-			// Update the view with the new acceleration data
-			textViewXAxis.setText(df.format(acceleration[0]));
-			textViewYAxis.setText(df.format(acceleration[1]));
-			textViewZAxis.setText(df.format(acceleration[2]));
-		}
-	}
-
 	private File generateMetaData()
 	{
 		// Convert our UTC time stamp into a date-time...
@@ -898,6 +885,7 @@ public class AccelerationAlertActivity extends Activity implements
 				Locale.US);
 		dateFormat.setTimeZone(TimeZone.getDefault());
 
+		// Create our headers...
 		String headers = "";
 
 		headers += META_TIME_AXIS_TITLE + ",";
@@ -934,44 +922,52 @@ public class AccelerationAlertActivity extends Activity implements
 
 		meta = headers;
 
+		// Create our first row of meta data...
 		meta += System.getProperty("line.separator");
 
+		// Add the route time stamp...
 		meta += dateFormat.format(timeStamps.get(0)) + ",";
 
+		// Add the first route location
 		meta += latitudes.get(0) + ",";
-
 		meta += longitudes.get(0) + ",";
 
+		// Add the start location...
 		meta += latitudeStart + ",";
 		meta += longitudeStart + ",";
 
+		// Add the start time stamp...
 		meta += dateFormat.format(timeStart) + ",";
 
+		// Add the stop location...
 		meta += latitudeStop + ",";
 		meta += longitudeStop + ",";
 
+		// Add the stop time stamp...
 		meta += dateFormat.format(timeStop) + ",";
 
+		// Add the acceleration event counts...
 		meta += eventCount0 + ",";
-
 		meta += eventCount1 + ",";
-
 		meta += eventCount2 + ",";
-
 		meta += eventCount3 + ",";
 
+		// Add the drivers impression of safety...
 		meta += String.valueOf(tripSafe) + ",";
 		meta += String.valueOf(tripUnsafe) + ",";
 		meta += String.valueOf(tripNeutral) + ",";
 
+		// Add the route to the file
 		for (int i = 1; i < latitudes.size(); i++)
 		{
+			// Add a new line.
 			meta += System.getProperty("line.separator");
 
+			// Add the route time stamp.
 			meta += dateFormat.format(timeStamps.get(i)) + ",";
 
+			// Add the route location.
 			meta += latitudes.get(i) + ",";
-
 			meta += longitudes.get(i);
 		}
 
@@ -979,15 +975,23 @@ public class AccelerationAlertActivity extends Activity implements
 	}
 
 	/**
-	 * Log output data to an external .csv file.
+	 * Log output data to an external .csv file. A log is generated for each
+	 * acceleration event. The log includes the data from just before the
+	 * acceleration event and the acceleration event itself. The log also
+	 * includes the speed at which the acceleration event occurred, the maximum
+	 * acceleration measured during the event and the settings of the
+	 * application.
 	 */
 	private File generateLogData()
 	{
+		// This runs outside of the main UI thread, so we make it thread safe by
+		// running on the UI thread.
 		runOnUiThread(new Runnable()
 		{
+			// Create a toast indicating that the log is being created.
 			public void run()
 			{
-				CharSequence text = "Logging Data";
+				CharSequence text = "Creating Log";
 				int duration = Toast.LENGTH_SHORT;
 
 				Toast toast = Toast.makeText(AccelerationAlertActivity.this,
@@ -996,6 +1000,7 @@ public class AccelerationAlertActivity extends Activity implements
 			}
 		});
 
+		// Create the headers.
 		String headers = "Generation" + ",";
 
 		headers += "Timestamp" + ",";
@@ -1047,6 +1052,7 @@ public class AccelerationAlertActivity extends Activity implements
 			}
 		}
 
+		// Generate the log data.
 		while (logTimeStampIterator.hasNext() && logMagnitudeIterator.hasNext())
 		{
 			long time = logTimeStampIterator.next();
@@ -1086,32 +1092,134 @@ public class AccelerationAlertActivity extends Activity implements
 		}
 
 		// Categorize the log by the maximum recorded acceleration.
-		categorizeLog(maxAcceleration);
+		categorizeAccelerationEvent(maxAcceleration);
 
 		return writeLogToFile();
 	}
 
-	private void categorizeLog(float value)
+	/**
+	 * Create the plot colors.
+	 */
+	private void initColor()
 	{
-		if (value > 0.2 && value <= 0.3)
+		color = new PlotColor(this);
+
+		plotLPFMagnitudeAxisColor = color.getLightGreen();
+	}
+
+	/**
+	 * Initialize the filters.
+	 */
+	private void initFilters()
+	{
+		// Low pass filter for the linear acceleration...
+		lowPassFilter = new LPFAndroidDeveloper();
+		lowPassFilter.setAlphaStatic(staticAlpha);
+		lowPassFilter.setAlpha(lpfStaticAlpha);
+
+		// Mean filter for the acceleration magnitude...
+		meanFilterMagnitude = new MeanFilterByValue();
+		meanFilterMagnitude.setWindowSize(10);
+
+		// Mean filter for the acceleration...
+		meanFilterAcceleration = new MeanFilterByArray();
+		meanFilterAcceleration.setWindowSize(10);
+	}
+
+	/**
+	 * Initialize the plots.
+	 */
+	private void initPlots()
+	{
+		View view = findViewById(R.id.ScrollView01);
+		view.setOnTouchListener(this);
+
+		// Create the graph plot
+		XYPlot plot = (XYPlot) findViewById(R.id.plot_sensor);
+		plot.setTitle("Acceleration");
+		dynamicPlot = new DynamicPlot(plot);
+		dynamicPlot.setMaxRange(1);
+		dynamicPlot.setMinRange(0);
+
+		// Add our magnitude plot.
+		addLPFMagnitudePlot();
+	}
+
+	/**
+	 * Initialize the Text View Sensor Outputs.
+	 */
+	private void initTextViewOutputs()
+	{
+		// Create the acceleration UI outputs
+		textViewXAxis = (TextView) findViewById(R.id.value_x_axis);
+		textViewYAxis = (TextView) findViewById(R.id.value_y_axis);
+		textViewZAxis = (TextView) findViewById(R.id.value_z_axis);
+
+		textViewFrequency = (TextView) findViewById(R.id.value_sensor_frequency);
+
+		// Format the UI outputs so they look nice
+		df = new DecimalFormat("#.##");
+	}
+
+	/**
+	 * Play an audio notification.
+	 */
+	private void playNotification()
+	{
+		// Play a beep noise...
+		try
 		{
-			eventCount0++;
+			Uri notification = RingtoneManager
+					.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+			Ringtone r = RingtoneManager.getRingtone(getApplicationContext(),
+					notification);
+			r.play();
 		}
-		if (value > 0.3 && value <= 0.4)
+		catch (Exception e)
 		{
-			eventCount1++;
-		}
-		if (value > 0.4 && value <= 0.5)
-		{
-			eventCount2++;
-		}
-		if (value > 0.5)
-		{
-			eventCount3++;
 		}
 	}
 
-	private void sendTripEmail()
+	/**
+	 * Plot the output data in the UI.
+	 */
+	private void plotData()
+	{
+		dynamicPlot.setDataFromList(plotMagnitudeList, PLOT_LPF_MAGNITUDE_KEY);
+
+		dynamicPlot.draw();
+	}
+
+	/**
+	 * Read in the current user preferences.
+	 */
+	private void readPrefs()
+	{
+		SharedPreferences prefs = this.getSharedPreferences("lpf_prefs",
+				Activity.MODE_PRIVATE);
+
+		setThresholdMax(prefs.getFloat("threshold_max", thresholdMax));
+		setThresholdMin(prefs.getFloat("threshold_min", thresholdMin));
+
+		setThresholdMaxCountLimit(prefs.getInt("threshold_count_max",
+				thresholdCountMaxLimit));
+		setThresholdMinCountLimit(prefs.getInt("threshold_count_min",
+				thresholdCountMinLimit));
+
+		setLPFStaticAlpha(prefs.getFloat("lpf_alpha", lpfStaticAlpha));
+
+		linearAccelerationActive = prefs.getBoolean(
+				ConfigActivity.LINEAR_ACCELERATION_PREFERENCE, true);
+
+		prefs = PreferenceManager.getDefaultSharedPreferences(this);
+		emailLog = prefs.getBoolean("email_logs_preference", false);
+	}
+
+	/**
+	 * Send an email to a Gmail account containing the meta data and log data
+	 * files from the session.
+	 */
+	private void sendSessionEmail()
 	{
 		SharedPreferences prefs = PreferenceManager
 				.getDefaultSharedPreferences(this);
@@ -1166,6 +1274,251 @@ public class AccelerationAlertActivity extends Activity implements
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
+		}
+	}
+
+	/**
+	 * Set the UI Text View indicating the event count.
+	 */
+	private void setEventCount0()
+	{
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_event_count_0);
+
+		textViewThresholdCountMin.setText(String.valueOf(this.eventCount0));
+	}
+
+	/**
+	 * Set the UI Text View indicating the event count.
+	 */
+	private void setEventCount1()
+	{
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_event_count_1);
+
+		textViewThresholdCountMin.setText(String.valueOf(this.eventCount1));
+	}
+
+	/**
+	 * Set the UI Text View indicating the event count.
+	 */
+	private void setEventCount2()
+	{
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_event_count_2);
+
+		textViewThresholdCountMin.setText(String.valueOf(this.eventCount2));
+	}
+
+	/**
+	 * Set the UI Text View indicating the event count.
+	 */
+	private void setEventCount3()
+	{
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_event_count_3);
+
+		textViewThresholdCountMin.setText(String.valueOf(this.eventCount3));
+	}
+
+	/**
+	 * Set the low-pass-filter static alpha. A value between 0 and 1. A value
+	 * close to 0 means the filter reacts quickly to compensate for changes in
+	 * the rotation while a value close to 1 means the filter is much more stiff
+	 * and slow to react to rotation changes.
+	 * 
+	 * @param alpha
+	 *            The alpha value for the low-pass-filter.
+	 */
+	private void setLPFStaticAlpha(float alpha)
+	{
+		this.lpfStaticAlpha = alpha;
+
+		if (lowPassFilter != null)
+		{
+			lowPassFilter.setAlpha(this.lpfStaticAlpha);
+		}
+
+		// Update the text views on the UI.
+		TextView textViewAlpha = (TextView) this
+				.findViewById(R.id.value_lpf_alpha);
+		textViewAlpha.setText(String.valueOf(this.lpfStaticAlpha));
+	}
+
+	/**
+	 * Set the number of consecutive acceleration measurements that need to
+	 * exceed the maximum threshold for an acceleration event to begin.
+	 * 
+	 * @param thresholdCountMaxLimit
+	 *            The maximum threshold count.
+	 */
+	private void setThresholdMaxCountLimit(int thresholdCountMaxLimit)
+	{
+		this.thresholdCountMaxLimit = thresholdCountMaxLimit;
+
+		// Update the text views on the UI.
+		TextView textViewThresholdCountMax = (TextView) this
+				.findViewById(R.id.value_max_threshold_count);
+		textViewThresholdCountMax.setText(String
+				.valueOf(this.thresholdCountMaxLimit));
+	}
+
+	/**
+	 * Set the number of consecutive acceleration measurements that need to be
+	 * below the minimum threshold for an acceleration event to end.
+	 * 
+	 * @param thresholdCountMinLimit
+	 *            The minimum threshold count.
+	 */
+	private void setThresholdMinCountLimit(int thresholdCountMinLimit)
+	{
+		this.thresholdCountMinLimit = thresholdCountMinLimit;
+
+		// Update the text views on the UI.
+		TextView textViewThresholdCountMin = (TextView) this
+				.findViewById(R.id.value_min_threshold_count);
+		textViewThresholdCountMin.setText(String
+				.valueOf(this.thresholdCountMinLimit));
+	}
+
+	/**
+	 * Set the threshold the acceleration must exceed for an acceleration event
+	 * to being.
+	 * 
+	 * @param thresholdMax
+	 *            The maximum acceleration threshold.
+	 */
+	private void setThresholdMax(float thresholdMax)
+	{
+		this.thresholdMax = thresholdMax;
+
+		// Update the text views on the UI.
+		TextView textViewThresholdMax = (TextView) this
+				.findViewById(R.id.value_max_threshold);
+		textViewThresholdMax.setText(String.valueOf(this.thresholdMax));
+	}
+
+	/**
+	 * Set the threshold the acceleration must be below for an acceleration
+	 * event to stop.
+	 * 
+	 * @param thresholdMin
+	 *            The minimum acceleration threshold.
+	 */
+	private void setThresholdMin(float thresholdMin)
+	{
+		this.thresholdMin = thresholdMin;
+
+		// Update the text views on the UI.
+		TextView textViewThresholdMin = (TextView) this
+				.findViewById(R.id.value_min_threshold);
+		textViewThresholdMin.setText(String.valueOf(this.thresholdMin));
+	}
+
+	/**
+	 * Show a dialog asking the user for their impression of the safety of the
+	 * session/trip: Safe, Unsafe or Neutral.
+	 */
+	private void showSafetyDialog()
+	{
+		AlertDialog alertDialog = new AlertDialog.Builder(this).create();
+
+		alertDialog.setTitle("Trip Comlete");
+
+		alertDialog.setMessage("Rate your trip!");
+
+		alertDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Safe",
+				new DialogInterface.OnClickListener()
+				{
+
+					public void onClick(DialogInterface dialog, int id)
+					{
+						tripSafe = true;
+						finishSession();
+					}
+				});
+
+		alertDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Unsafe",
+				new DialogInterface.OnClickListener()
+				{
+
+					public void onClick(DialogInterface dialog, int id)
+					{
+						tripUnsafe = true;
+						finishSession();
+					}
+				});
+
+		alertDialog.setButton(AlertDialog.BUTTON_NEUTRAL, "Neutral",
+				new DialogInterface.OnClickListener()
+				{
+
+					public void onClick(DialogInterface dialog, int id)
+					{
+						tripNeutral = true;
+						finishSession();
+					}
+				});
+
+		alertDialog.show();
+	}
+
+	/**
+	 * Show a help dialog.
+	 */
+	private void showHelpDialog()
+	{
+		Dialog helpDialog = new Dialog(this);
+		helpDialog.setCancelable(true);
+		helpDialog.setCanceledOnTouchOutside(true);
+
+		helpDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+		helpDialog.setContentView(getLayoutInflater().inflate(R.layout.help,
+				null));
+
+		helpDialog.show();
+	}
+
+	/**
+	 * Show a dialog with the acceleration event settings.
+	 */
+	private void showSettingsDialog()
+	{
+		SettingsDialog dialog = new SettingsDialog(this);
+
+		dialog.setOnDismissListener(new OnDismissListener()
+		{
+			@Override
+			public void onDismiss(DialogInterface arg0)
+			{
+				// Read the new preferences.
+				readPrefs();
+			}
+		});
+
+		dialog.show();
+	}
+
+	/**
+	 * Update the text views on the UI with the most recent acceleration
+	 * measurements.
+	 */
+	private void updateTextViewOutputs()
+	{
+		if (linearAccelerationActive)
+		{
+			// Update the view with the new acceleration data
+			textViewXAxis.setText(df.format(lpfAcceleration[0]));
+			textViewYAxis.setText(df.format(lpfAcceleration[1]));
+			textViewZAxis.setText(df.format(lpfAcceleration[2]));
+		}
+		else
+		{
+			// Update the view with the new acceleration data
+			textViewXAxis.setText(df.format(acceleration[0]));
+			textViewYAxis.setText(df.format(acceleration[1]));
+			textViewZAxis.setText(df.format(acceleration[2]));
 		}
 	}
 
@@ -1326,155 +1679,32 @@ public class AccelerationAlertActivity extends Activity implements
 	}
 
 	/**
-	 * Get the distance between fingers for the touch to zoom.
-	 * 
-	 * @param event
-	 * @return
+	 * Write the application preferences.
 	 */
-	private final float fingerDist(MotionEvent event)
-	{
-		float x = event.getX(0) - event.getX(1);
-		float y = event.getY(0) - event.getY(1);
-		return (float) Math.sqrt(x * x + y * y);
-	}
-
-	/**
-	 * Read in the current user preferences.
-	 */
-	private void readPrefs()
-	{
-		SharedPreferences prefs = this.getSharedPreferences("lpf_prefs",
-				Activity.MODE_PRIVATE);
-
-		setThresholdMax(prefs.getFloat("threshold_max", thresholdMax));
-		setThresholdMin(prefs.getFloat("threshold_min", thresholdMin));
-
-		setThresholdMaxCountLimit(prefs.getInt("threshold_count_max",
-				thresholdCountMaxLimit));
-		setThresholdMinCountLimit(prefs.getInt("threshold_count_min",
-				thresholdCountMinLimit));
-
-		setLPFStaticAlpha(prefs.getFloat("lpf_alpha", lpfStaticAlpha));
-
-		linearAccelerationActive = prefs.getBoolean(
-				ConfigActivity.LINEAR_ACCELERATION_PREFERENCE, true);
-
-		prefs = PreferenceManager.getDefaultSharedPreferences(this);
-		emailLog = prefs.getBoolean("email_logs_preference", false);
-	}
-
-	private void setEventCount0()
-	{
-		TextView textViewThresholdCountMin = (TextView) this
-				.findViewById(R.id.value_event_count_0);
-
-		textViewThresholdCountMin.setText(String.valueOf(this.eventCount0));
-	}
-
-	private void setEventCount1()
-	{
-		TextView textViewThresholdCountMin = (TextView) this
-				.findViewById(R.id.value_event_count_1);
-
-		textViewThresholdCountMin.setText(String.valueOf(this.eventCount1));
-	}
-
-	private void setEventCount2()
-	{
-		TextView textViewThresholdCountMin = (TextView) this
-				.findViewById(R.id.value_event_count_2);
-
-		textViewThresholdCountMin.setText(String.valueOf(this.eventCount2));
-	}
-
-	private void setEventCount3()
-	{
-		TextView textViewThresholdCountMin = (TextView) this
-				.findViewById(R.id.value_event_count_3);
-
-		textViewThresholdCountMin.setText(String.valueOf(this.eventCount3));
-	}
-
-	private void showSafetyDialog()
-	{
-		AlertDialog alertDialog = new AlertDialog.Builder(this).create();
-
-		alertDialog.setTitle("Trip Comlete");
-
-		alertDialog.setMessage("Rate your trip!");
-
-		alertDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Safe",
-				new DialogInterface.OnClickListener()
-				{
-
-					public void onClick(DialogInterface dialog, int id)
-					{
-						tripSafe = true;
-						finishSession();
-					}
-				});
-
-		alertDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Unsafe",
-				new DialogInterface.OnClickListener()
-				{
-
-					public void onClick(DialogInterface dialog, int id)
-					{
-						tripUnsafe = true;
-						finishSession();
-					}
-				});
-
-		alertDialog.setButton(AlertDialog.BUTTON_NEUTRAL, "Neutral",
-				new DialogInterface.OnClickListener()
-				{
-
-					public void onClick(DialogInterface dialog, int id)
-					{
-						tripNeutral = true;
-						finishSession();
-					}
-				});
-
-		alertDialog.show();
-	}
-
-	private void showHelpDialog()
-	{
-		Dialog helpDialog = new Dialog(this);
-		helpDialog.setCancelable(true);
-		helpDialog.setCanceledOnTouchOutside(true);
-
-		helpDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-		helpDialog.setContentView(getLayoutInflater().inflate(R.layout.help,
-				null));
-
-		helpDialog.show();
-	}
-
 	private void writePrefs()
 	{
 		SharedPreferences prefs = this.getSharedPreferences("lpf_prefs",
 				Activity.MODE_PRIVATE);
 
-		prefs.edit().putFloat("threshold_max", thresholdMax);
-		prefs.edit().putFloat("threshold_min", thresholdMin);
+		SharedPreferences.Editor editor = prefs.edit();
 
-		prefs.edit().putInt("threshold_count_max", thresholdCountMaxLimit);
-		prefs.edit().putInt("threshold_count_min", thresholdCountMinLimit);
+		editor.putFloat("threshold_max", thresholdMax);
+		editor.putFloat("threshold_min", thresholdMin);
 
-		prefs.edit().putFloat("lpf_alpha", lpfStaticAlpha);
+		editor.putInt("threshold_count_max", thresholdCountMaxLimit);
+		editor.putInt("threshold_count_min", thresholdCountMinLimit);
 
-		prefs.edit().commit();
+		editor.putFloat("lpf_alpha", lpfStaticAlpha);
+
+		editor.commit();
 	}
 
-	private void showSettingsDialog()
-	{
-		SettingsDialog dialog = new SettingsDialog(this);
-		dialog.show();
-	}
-
+	/**
+	 * A task to plot the acceleration event data to the UI.
+	 * 
+	 * @author Kaleb
+	 * 
+	 */
 	private class PlotTask extends AsyncTask<Void, Void, Void>
 	{
 
@@ -1498,6 +1728,12 @@ public class AccelerationAlertActivity extends Activity implements
 
 	}
 
+	/**
+	 * A task to create the .csv format log file.
+	 * 
+	 * @author Kaleb
+	 * 
+	 */
 	private class LogTask extends AsyncTask<Void, Void, Void>
 	{
 
@@ -1529,6 +1765,12 @@ public class AccelerationAlertActivity extends Activity implements
 		}
 	}
 
+	/**
+	 * A task to create the .csv format meta file.
+	 * 
+	 * @author Kaleb
+	 * 
+	 */
 	private class EmailTask extends AsyncTask<Void, Void, Void>
 	{
 
@@ -1537,7 +1779,7 @@ public class AccelerationAlertActivity extends Activity implements
 		{
 			if (emailLog)
 			{
-				sendTripEmail();
+				sendSessionEmail();
 			}
 
 			return null;

@@ -27,7 +27,8 @@
             android:dialogTitle="Email Address"
             android:key="email_host_address"
             android:summary="Enter Email Address"
-            android:title="Email Address" />
+            android:title="Email Address" 
+            android:inputType="textNoSuggestions"/>
         <EditTextPreference
             android:dialogTitle="Email Password"
             android:inputType="textPassword"
@@ -42,7 +43,8 @@
             android:dialogTitle="Email Address"
             android:key="email_recipient_address"
             android:summary="Enter Email Address"
-            android:title="Email Address" />
+            android:title="Email Address" 
+            android:inputType="textNoSuggestions"/>
     </PreferenceCategory>
 
 </PreferenceScreen>
