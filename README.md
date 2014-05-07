@@ -24,3 +24,4 @@ Useful Links:
 * [Acceleration Alert Community](http://www.kircherelectronics.com/forum/viewforum.php?f=5)
 * [Download Acceleration Alert from Google Play](https://play.google.com/store/apps/details?id=com.kircherelectronics.accelerationalert)
 
+Written by [Kircher Electronics](https://www.kircherelectronics.com)
